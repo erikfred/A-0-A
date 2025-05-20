@@ -1,0 +1,333 @@
+% apply_cals.m
+%
+% Apply drift calibrations to pressure observations by two methods:
+%   1) Generate a smooth model by fitting the calibrations to the
+%   functional form y = ax + b + c*exp(-t/d)
+%   2) Generate a linearly-interpolated model to fill in gaps between
+%   calibration points
+%
+
+clear; close all
+
+Tcor=false; % see notes from 2024-05-20 justifying no temperature correction
+highrate=false; % drift corrects 1 Hz data for sharing with collaborators
+barswap=false; % test of using barometer temperature in place of pressure
+
+POBS_dir=dir('../stitched_data/');
+POBS_list={POBS_dir.name}';
+file_check=cellfun(@(v)v(1),POBS_list);
+i_list=find(eq(file_check,'P')); % subselects only files begining with 'P'
+n=0;
+for i=1:length(i_list)
+    k=i_list(i);
+
+    % if ~strcmp(POBS_dir(k).name,'POBS09.mat') && ~strcmp(POBS_dir(k).name,'POBS7_co-located-w-QA15.mat')
+    %     continue
+    % end
+
+    load(['../pressure_data/' POBS_dir(k).name],'calInfoAll1','calInfoAll2','barInfoAll')
+    if isempty(calInfoAll1)
+        continue
+    elseif length(calInfoAll1.i0)<=4
+        continue
+    end
+
+    load([POBS_dir(k).folder '/' POBS_dir(k).name])
+
+    if length(POBS_dir(k).name)==27 % POBS-07 has additional characters we don't need
+        POBS_dir(k).name(6:end-4)=[];
+    end
+
+    % gather variables
+    t=barInfoAll.t0p;
+    bp=barInfoAll.pCal;
+    bT=barInfoAll.T;
+    p1=calInfoAll1.pCal;
+    p2=calInfoAll2.pCal;
+    T1=calInfoAll1.T;
+    T2=calInfoAll2.T;
+
+    % additional trimming as necesary
+    if strcmp(POBS_dir(k).name,'POBS1.mat') % offset in last 11 cals
+        t(end-10:end)=[]; bp(end-10:end)=[]; bT(end-10:end)=[];
+        p1(end-10:end)=[]; p2(end-10:end)=[]; T1(end-10:end)=[]; T2(end-10:end)=[];
+    elseif strcmp(POBS_dir(k).name,'POBS09.mat') % offset in last cal
+        t(end)=[]; bp(end)=[]; bT(end)=[];
+        p1(end)=[]; p2(end)=[]; T1(end)=[]; T2(end)=[];
+    elseif strcmp(POBS_dir(k).name,'POBS15.mat') % systematic increase in last 10 cals
+        t(end-9:end)=[]; bp(end-9:end)=[]; bT(end-9:end)=[];
+        p1(end-9:end)=[]; p2(end-9:end)=[]; T1(end-9:end)=[]; T2(end-9:end)=[];
+    elseif strcmp(POBS_dir(k).name,'POBS16.mat')
+        p1(end-5:end)=p2(end-5:end)+16.3; % approximate fix that allows code to
+                                            % work until I truncate later
+    end
+
+    if barswap
+        figure(3); clf; hold on
+        plot(t,bp-mean(bp),'o-')
+        plot(t,(bT-mean(bT))*3.71,'s-')
+        legend('P_b_a_r','3.71 x T_b_a_r','location','best')
+        datetick('x',6)
+        ylabel('P (hPa)')
+        title(POBS_dir(k).name(1:end-4))
+        set(gca,'fontsize',14)
+        box on; grid on
+
+        fh=gcf;
+        fh.PaperUnits='inches';
+        fh.PaperPosition=[0 0 11 8.5];
+        print(['../figures/cal_fits/corrections/barometer_check/bar_comp/' POBS_dir(k).name(1:end-4) '_barcomp'],'-dpng','-r300')
+
+        bp=bT*3.71; % derived from ideal gas law
+    elseif strcmp(POBS_dir(k).name,'POBS2.mat') % barometer-temperature swap from POBS-02
+        bp=bT*3.71; % derived from ideal gas law
+    end
+
+    % correct pressure gauges for barometer
+    p1=p1-bp;
+    p2=p2-bp;
+
+    %% apply direct drift correction to the pressure records
+
+    % trim data to match calibration range
+    icut=(dataf.tf<t(1) | dataf.tf>t(end));
+    dataf.tf(icut)=[]; dataf.p1f(icut)=[]; dataf.T1f(icut)=[];
+    dataf.p2f(icut)=[]; dataf.T2f(icut)=[];
+    dataf.xtf(icut)=[]; dataf.ytf(icut)=[]; dataf.ztf(icut)=[]; dataf.Ttf(icut)=[];
+
+    % expand calibrations onto full time domain of pressure data
+    p1_m=interp1(t,p1,dataf.tf,'spline');
+    p2_m=interp1(t,p2,dataf.tf,'spline');
+
+    if strcmp(POBS_dir(k).name,'POBS16.mat')
+        inan=find(dataf.tf>=739143); % data goes bad a bit before cal would indicate
+        p1_m(inan)=NaN;
+        dataf.p1f(inan)=NaN;
+        p1(end-5:end)=NaN;
+    end
+
+    % store corrected time series
+    dataf.drift1=p1_m;
+    dataf.drift2=p2_m;
+    dataf.p1_dcor=dataf.p1f-p1_m;
+    dataf.p2_dcor=dataf.p2f-p2_m;
+
+    figure(53); clf;
+    subplot(211); hold on
+    plot(dataf.tf,dataf.p1f-mean(dataf.p1f)+10,'linewidth',1)
+    plot(t,p1-mean(p1)+10,'or')
+    plot(dataf.tf,p1_m-mean(p1)+10,'r','linewidth',1)
+    p1_plot=dataf.p1_dcor-mean(dataf.p1_dcor);
+    plot(dataf.tf,p1_plot,'k','linewidth',1)
+    % determine linear fit to corrected data
+    p1_fit=polyfit(dataf.tf,p1_plot,1);
+    plot(dataf.tf,p1_fit(2)+p1_fit(1)*dataf.tf,'k','linewidth',2)
+    text(dataf.tf(end-1000),p1_plot(end)-7.5,...
+        [num2str(round(p1_fit(1)*365,1)) ' hPa/yr'],'fontsize',14)
+    if strcmp(POBS_dir(k).name,'POBS16.mat')
+        clf; subplot(211); hold on
+        plot(dataf.tf,dataf.p1f-nanmean(dataf.p1f)+10,'linewidth',1)
+        plot(t,p1-nanmean(p1)+10,'or')
+        plot(dataf.tf,p1_m-nanmean(p1)+10,'r','linewidth',1)
+        p1_plot=dataf.p1_dcor-nanmean(dataf.p1_dcor);
+        plot(dataf.tf,p1_plot,'k','linewidth',1)
+        p1_fit=polyfit(dataf.tf(~isnan(dataf.p1_dcor)),p1_plot(~isnan(dataf.p1_dcor)),1);
+        plot(dataf.tf,p1_fit(2)+p1_fit(1)*dataf.tf,'k','linewidth',2)
+        text(dataf.tf(end-1000),p1_plot(inan(1)-1)-7.5,...
+            [num2str(round(p1_fit(1)*365,1)) ' hPa/yr'],'fontsize',14)
+    end
+    ylabel('P (hPa)')
+    legend('P','cals','cal interp','corrected','location','northeast')
+    datetick('x',6)
+    title({POBS_dir(k).name(1:end-4); 'Gauge 1'})
+    set(gca,'fontsize',14)
+    box on; grid on
+    lim1=ylim;
+    subplot(212); hold on
+    plot(dataf.tf,dataf.p2f-mean(dataf.p2f)+10,'linewidth',1)
+    plot(t,p2-mean(p2)+10,'or')
+    plot(dataf.tf,p2_m-mean(p2)+10,'r','linewidth',1)
+    p2_plot=dataf.p2_dcor-mean(dataf.p2_dcor);
+    plot(dataf.tf,p2_plot,'k','linewidth',1)
+    % determine linear fit to corrected data
+    p2_fit=polyfit(dataf.tf,p2_plot,1);
+    plot(dataf.tf,p2_fit(2)+p2_fit(1)*dataf.tf,'k','linewidth',2)
+    text(dataf.tf(end-1000),p2_plot(end)-7.5,...
+        [num2str(round(p2_fit(1)*365,1)) ' hPa/yr'],'fontsize',14)
+    ylabel('P (hPa)')
+    legend('P','cals','cal interp','corrected','location','northeast')
+    datetick('x',6)
+    title('Gauge 2')
+    set(gca,'fontsize',14)
+    box on; grid on
+    lim2=ylim;
+
+    % equilibrate ylimits
+    subplot(211)
+    ylim([min(lim1(1),lim2(1)) max(lim1(2),lim2(2))])
+    subplot(212)
+    ylim([min(lim1(1),lim2(1)) max(lim1(2),lim2(2))])
+
+    fh=gcf;
+    fh.PaperUnits='inches';
+    fh.PaperPosition=[0 0 8.5 11];
+    % print(['../figures/cal_fits/corrections/direct/' POBS_dir(k).name(1:end-4) '_driftcor'],'-dpng','-r300')
+    % print(['../figures/cal_fits/corrections/direct/' POBS_dir(k).name(1:end-4) '_driftcor'],'-depsc','-vector')
+
+    % uncorrected linear rates
+    p1m_fit=polyfit(dataf.tf,dataf.p1f,1);
+    p2m_fit=polyfit(dataf.tf,dataf.p2f,1);
+    p1m_rate(i)=p1m_fit(1)*365;
+    p2m_rate(i)=p2m_fit(1)*365;
+
+    % corrected linear rates
+    p1_rate(i)=p1_fit(1)*365;
+    p2_rate(i)=p2_fit(1)*365;
+
+    figure(18); clf
+    subplot(211); hold on
+    plot(dataf.tf,p1_plot,'linewidth',1)
+    plot(dataf.tf,p2_plot,'linewidth',1)
+    ylabel('P (hPa)')
+    legend('Gauge 1','Gauge 2','location','northeast')
+    datetick('x',6)
+    title([POBS_dir(k).name(1:end-4) ' Gauge Comparisons -- direct drift correction'])
+    set(gca,'fontsize',14)
+    box on; grid on
+    subplot(212); hold on
+    plot(dataf.tf,p1_plot-p2_plot,'k','linewidth',1)
+    pdif_fit=polyfit(dataf.tf,p1_plot-p2_plot,1);
+    plot(dataf.tf,pdif_fit(2)+pdif_fit(1)*dataf.tf,'k','linewidth',2)
+    text(dataf.tf(end-1000),p1_plot(end)-p2_plot(end)+0.2,...
+        [num2str(round(pdif_fit(1)*365,1)) ' hPa/yr'],'fontsize',14)
+    ylabel('P (hPa)')
+    legend('Gauge 1-Gauge 2','location','northeast')
+    datetick('x',6)
+    set(gca,'fontsize',14)
+    box on; grid on
+
+    fh=gcf;
+    fh.PaperUnits='inches';
+    fh.PaperPosition=[0 0 8.5 11];
+    % print(['../figures/cal_fits/corrections/direct/gauge_comp/' POBS_dir(k).name(1:end-4) '_gaugecomp'],'-dpng','-r300')
+
+    % stacked timeseries of (un)corrected data to demonstrate difference
+    figure(111); hold on
+    plot(dataf.tf,dataf.p2f-mean(dataf.p2f)+10*n,'color',[0 114 189]/255,'linewidth',1)
+    plot(dataf.tf,p2m_fit(1)*dataf.tf+p2m_fit(2)-mean(dataf.p2f)+10*n,'color',[0 114 189]/255,'linewidth',1)
+    text(dataf.tf(1)-55,p2m_fit(1)*dataf.tf(1)+p2m_fit(2)-mean(dataf.p2f)+10*n,POBS_dir(k).name(1:end-4),'color',[0 114 189]/255,'fontsize',12)
+
+    figure(112); hold on
+    plot(dataf.tf,p2_plot+10*n,'r','linewidth',1)
+    plot(dataf.tf,p2_fit(1)*dataf.tf+p2_fit(2)+10*n,'r','linewidth',1)
+    text(dataf.tf(1)-55,p2_fit(1)*dataf.tf(1)+p2_fit(2)+10*n,POBS_dir(k).name(1:end-4),'color','r','fontsize',12)
+
+    n=n+1;
+
+    % save corrected data
+    % save(['../stitched_data/drift_corrected/' POBS_dir(k).name],'dataf','calInfoAll1','calInfoAll2')
+
+    %% correct 1 Hz data and write to textfile
+
+    if highrate
+        load([POBS_dir(k).folder '/stitched_1Hz/' POBS_dir(k).name])
+        icut=(data.t<t(1) | data.t>t(end));
+        data.t(icut)=[]; data.p1(icut)=[]; data.T1(icut)=[];
+        data.p2(icut)=[]; data.T2(icut)=[];
+
+        p1_m=interp1(t,p1,data.t,'spline');
+        p2_m=interp1(t,p2,data.t,'spline');
+
+        if strcmp(POBS_dir(k).name,'POBS16.mat')
+            inan=find(data.t>=739143); % determined from visual inspection
+            p1_m(inan)=NaN;
+            data.p1(inan)=NaN;
+            p1(end-5:end)=NaN;
+        end
+
+        % store corrected time series
+        data.drift1=p1_m;
+        data.drift2=p2_m;
+        data.p1_dcor=data.p1-p1_m;
+        data.p2_dcor=data.p2-p2_m;
+
+        % write to text
+        sdir=['/Volumes/ExtremeSSD/decimated/year1/' POBS_dir(k).name(1:end-4)];
+        if ~exist(sdir,'dir')
+            mkdir(sdir)
+        end
+        sname=[sdir '/' POBS_dir(k).name(1:end-4)];
+        tstr=datestr(data.t,30);
+        T=table(tstr,data.p1_dcor*100,data.T1,data.p2_dcor*100,data.T2);
+        T.Properties.VariableNames(1:5)={'t (yyyymmddTHHMMSS)','P1 (Pa)','T1 (C)','P2 (Pa)','T2 (C)'};
+        writetable(T,[sname '_APG_driftcorrected'])
+    end
+end
+
+%% MAPS OF INFERED DEFORMATION
+
+addpath('../../hikurangi/code/m_map')
+load('../pressure_data/geometry');
+
+% reconcile different station order
+stalist = {POBS_dir(i_list).name};
+for i=1:length(stalist)
+    staID = str2double(stalist{(i)}(5:end-4));
+    staID_padded = sprintf('%02d',staID);
+    ii(i) = find(strcmp(['POBS-' staID_padded],staname));
+end
+
+% setup base map
+figure(54); clf; hold on
+lat1=-40; lat2=-38.5;
+lon1=177.5; lon2=179.5;
+m_proj('mercator','longitudes',[lon1 lon2],'latitudes',[lat1 lat2]);
+
+X=linspace(174.5,180,1320);
+Y=linspace(-37.5,-42,1080);
+Z=imread('../../hikurangi/gshhg-bin-2.3.6/NZ_bathymetry.tiff');
+Z(Z>=0)=NaN;
+[~,hc]=m_contourf(X,Y,Z,-5000:100:0,'linecolor','none');
+
+m_gshhs_i('patch',[.7 .7 .7]);
+
+m_contour(X,Y,Z,[-150 -150],'k','linewidth',1) % shelf at 150 m?
+m_text(177.75,-39.55,'150 m','fontsize',12,'rotation',35)
+m_contour(X,Y,Z,[-2750 -2750],'k','linewidth',1) % 2750 m does a decent job visually
+m_text(178.4,-39.9,'2750 m','fontsize',12,'rotation',80)
+
+colormap(gca,cmocean('-deep'))
+cb1 = colorbar(gca,'eastoutside');
+ylabel(cb1,'Depth (m)')
+set(cb1,'fontsize',14)
+m_grid('xlabeldir','end','fontsize',14);
+
+% station markers
+m_plot(stalon,stalat,'^k','markersize',10)
+m_text(stalon-0.21,stalat,staname,'fontsize',12)
+
+% scale arrow
+m_quiver(177.6,-39.95,0,5/20,'off','color','k','linewidth',2)
+m_text(177.65,-39.8,'5 cm/yr','fontsize',12)
+
+%---direct corrections
+% Gauge 1
+h1=m_quiver(stalon(ii)',stalat(ii)',zeros(size(p1_rate)),-p1_rate/20,'off','color','r','linewidth',2);
+title('Gauge 1 -- direct drift correction')
+
+fh=gcf;
+fh.PaperUnits='inches';
+fh.PaperPosition=[0 0 11 8.5];
+print('../figures/cal_fits/corrections/direct/def_map_G1','-dpng','-r300')
+print('../figures/cal_fits/corrections/direct/def_map_G1','-depsc','-vector')
+
+% Gauge 2
+delete(h1)
+h1=m_quiver(stalon(ii)',stalat(ii)',zeros(size(p1_rate)),-p2_rate/20,'off','color','r','linewidth',2);
+title('Gauge 2 -- direct drift correction')
+
+fh=gcf;
+fh.PaperUnits='inches';
+fh.PaperPosition=[0 0 11 8.5];
+print('../figures/cal_fits/corrections/direct/def_map_G2','-dpng','-r300')
+print('../figures/cal_fits/corrections/direct/def_map_G2','-depsc','-vector')
