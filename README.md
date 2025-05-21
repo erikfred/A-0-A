@@ -20,9 +20,9 @@ This will leave you with all the saved matfiles necessary to run the other bits 
 Code descriptions
 ----------
 
-* /apg_read
+* /old
 
-*(Originally authored by Neville Palmer) Directory with Python scripts for converting GNS APG binary files to text files*
+*Codes that were depricated as the project evolved*
 
 * /tools <--- add to the path to ensure main codes work!
 
