@@ -6,11 +6,11 @@
 
 clear; close all
 
-addpath('../../hikurangi/code/m_map')
+addpath('../../hikurangi/hikurangi/tools/m_map')
 
 % setup base map
 figure(54); clf; hold on
-lat1=-40; lat2=-38.5;
+lat1=-39.75; lat2=-38.25;
 lon1=177.5; lon2=179.5;
 m_proj('mercator','longitudes',[lon1 lon2],'latitudes',[lat1 lat2]);
 
@@ -35,19 +35,39 @@ m_grid('xlabeldir','end','fontsize',14);
 
 %% change this section to mark different things on the map
 
-% overlapping GONDOR-I and -II A-0-A locations
+% % overlapping GONDOR-I and -II A-0-A locations
+% g1=load('../pressure_data/geometry.mat');
+% g2=load('../pressure_data_Y2/geometry.mat');
+% 
+% % Y1 markers
+% m_plot(g1.stalon,g1.stalat,'^k','linewidth',1,'markerfacecolor','c','markersize',10)
+% m_text(g1.stalon-0.21,g1.stalat,g1.staname,'fontsize',12)
+% 
+% % Y2 markers
+% m_plot(g2.stalon,g2.stalat,'sk','linewidth',1,'markerfacecolor','y','markersize',10)
+% m_text(g2.stalon+0.1,g2.stalat,g2.staname,'fontsize',12,'color','c')
+% 
+% fh=gcf;
+% fh.PaperUnits='inches';
+% fh.PaperPosition=[0 0 11 8.5];
+% print('../figures_Y2/maptest','-dpng','-r300')
+
+% overlapping A-0-A & CPIES locations
 g1=load('../pressure_data/geometry.mat');
-g2=load('../pressure_data_Y2/geometry.mat');
+load('../CPIES_telemetry_2024/CPIES_formatted.mat');
 
 % Y1 markers
-m_plot(g1.stalon,g1.stalat,'^k','linewidth',1,'markerfacecolor','c','markersize',10)
-m_text(g1.stalon-0.21,g1.stalat,g1.staname,'fontsize',12)
+h1=m_plot(g1.stalon,g1.stalat,'^k','linewidth',1,'markerfacecolor','c','markersize',15);
+% m_text(g1.stalon-0.21,g1.stalat,g1.staname,'fontsize',12)
 
-% Y2 markers
-m_plot(g2.stalon,g2.stalat,'sk','linewidth',1,'markerfacecolor','y','markersize',10)
-m_text(g2.stalon+0.1,g2.stalat,g2.staname,'fontsize',12,'color','c')
+% CPIES markers
+h2=m_plot(cpies.lon,cpies.lat,'sk','linewidth',1,'markerfacecolor','y','markersize',15);
+% m_text(cpies.lon+0.1,cpies.lat,cpies.name,'fontsize',12,'color','c')
+
+legend([h1 h2],'A-0-A','CPIES','location','southeast')
+set(gca,'fontsize',20)
 
 fh=gcf;
 fh.PaperUnits='inches';
 fh.PaperPosition=[0 0 11 8.5];
-print('../figures_Y2/maptest','-dpng','-r300')
+print('../figures/A0A-CPIES_map','-dpng','-r300')

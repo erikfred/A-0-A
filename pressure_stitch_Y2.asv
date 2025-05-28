@@ -128,7 +128,7 @@ for i=i_list'
     dataf.xtf=interp1(tf,xtf,tff); dataf.ytf=interp1(tf,ytf,tff);
     dataf.ztf=interp1(tf,ztf,tff); dataf.Ttf=interp1(tf,Ttf,tff);
 
-    save(['../stitched_data_Y2/' POBS_dir(i).name],'dataf')
+    save(['../stitched_data_Y2/' POBS_dir(i).name '_alt'],'dataf')
 
     % also save 1 Hz data
     data=[];

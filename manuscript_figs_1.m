@@ -7,8 +7,8 @@
 
 clear; close all
 
-f3=false;
-f4=true;
+f3=true;
+f4=false;
 
 load('../pressure_data/geometry');
 

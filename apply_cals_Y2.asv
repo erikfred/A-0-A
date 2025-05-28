@@ -68,7 +68,6 @@ for i=1:length(i_list)
         % pa=p1(5:24)-p2(5:24); pb=p1(25:end)-p2(25:end);
         % G=[[ones(size(ta));zeros(size(tb))],[zeros(size(ta));ones(size(tb))],[ta;tb]];
         % m=inv(G'*G)*G'*[pa;pb];
-        % % (m1(2)-m1(1))-(m2(2)-m2(1)) = m(2)-m(1) provides supporting line of evidence
     end
 
     % % try it Laura's way with 2 months cut out
